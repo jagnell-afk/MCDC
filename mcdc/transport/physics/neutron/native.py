@@ -608,14 +608,14 @@ def inelastic_scattering(reaction, particle_container, nuclide, mcdc, data):
 @njit
 def fission(reaction, particle_container, nuclide, mcdc, data):
     settings = mcdc["settings"]
-
     # Particle properties
     particle = particle_container[0]
     E = particle["E"]
     ux = particle["ux"]
     uy = particle["uy"]
     uz = particle["uz"]
-
+    Z = nuclide["atomic_number"]
+    A = nuclide["atomic_weight_ratio"]
     # Kill the current particle
     particle["alive"] = False
 
@@ -629,10 +629,13 @@ def fission(reaction, particle_container, nuclide, mcdc, data):
 
     # Fission yields
     N_delayed = nuclide["N_neutron_fission_delayed_precursor"]
-    nu_p = neutron_fission_prompt_multiplicity(E, nuclide, mcdc, data)
+    #nu_p = neutron_fission_prompt_multiplicity(E, nuclide, mcdc, data)
     nu_d = neutron_fission_delayed_multiplicity(E, nuclide, mcdc, data)
-    nu = nu_p + nu_d
+    ZAID = 1000*Z+A
 
+    cgmfwrap.run_event(ZAID,E)
+
+    nu = nu_d + nu_p
     # Get number of secondaries
     N = int(
         math.floor(weight_production * nu / mcdc["k_eff"] + rng.lcg(particle_container))
@@ -672,48 +675,11 @@ def fission(reaction, particle_container, nuclide, mcdc, data):
         # ==============================================================================
 
         if prompt:
-            # Sample angle (if not energy-correlated)
-            angle_type = reaction["angle_type"]
-            if angle_type == ANGLE_ENERGY_CORRELATED:
-                pass
-            elif angle_type == ANGLE_ISOTROPIC:
-                mu = sample_isotropic_cosine(particle_container_new)
-            elif angle_type == ANGLE_DISTRIBUTED:
-                distribution_base = mcdc["distributions"][reaction["mu_ID"]]
-                multi_table = mcdc["multi_table_distributions"][
-                    distribution_base["child_ID"]
-                ]
-                mu = sample_multi_table(E, particle_container_new, multi_table, data)
-
-            # Sample energy (also angle if correlated)
-            spectrum_base = mcdc["distributions"][reaction["spectrum_ID"]]
-            if not angle_type == ANGLE_ENERGY_CORRELATED:
-                E_new = sample_distribution(
-                    E, spectrum_base, particle_container_new, mcdc, data, scale=True
-                )
-            else:
-                E_new, mu = sample_correlated_distribution(
-                    E, spectrum_base, particle_container_new, mcdc, data, scale=True
-                )
-
-            # Frame transformation
-            reaction_base = mcdc["neutron_reactions"][int(reaction["parent_ID"])]
-            reference_frame = reaction_base["reference_frame"]
-            if reference_frame == REFERENCE_FRAME_COM:
-                A = nuclide["atomic_weight_ratio"]
-                mu_COM = mu
-                E_COM = E_new
-
-                E_new = (
-                    E_COM
-                    + (E + 2 * mu_COM * (A + 1) * math.sqrt(E * E_COM)) / (A + 1) ** 2
-                )
-                mu = mu_COM * math.sqrt(E_COM / E_new) + math.sqrt(E / E_new) / (A + 1)
-
-            azi = 2.0 * PI * rng.lcg(particle_container_new)
-            ux_new, uy_new, uz_new = scatter_direction(ux, uy, uz, mu, azi)
-
-            # Now the secondary angle and energy are finalized
+            E_new = neutron_energies[n]
+            ux_new = neutron_dir_cosu[n]
+            uy_new = neutorn_dir_cosv[n]
+            uz_new = neutron_dir_cosw[n]
+         # Now the secondary angle and energy are finalized
             particle_new["ux"] = ux_new
             particle_new["uy"] = uy_new
             particle_new["uz"] = uz_new
